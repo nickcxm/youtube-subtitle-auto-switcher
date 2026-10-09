@@ -1,4 +1,5 @@
 import { DEFAULTS, getSettings, messageError } from './shared';
+import { isProfile } from './models';
 let opening: Promise<void> | undefined;
 let mutations: Promise<void> = Promise.resolve();
 async function mutate<T>(operation: () => Promise<T>): Promise<T> {
