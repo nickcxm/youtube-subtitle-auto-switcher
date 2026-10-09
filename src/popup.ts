@@ -1,11 +1,14 @@
+import { encodeJpeg } from './images';
 import { MODELS, type Profile } from './models';
-import { getSettings, request, messageError, type Settings, type Status, type OcrResult, type Reply } from './shared';
+import { getSettings, request, messageError, type Settings, type Status, type OcrResult, type Reply, isYouTubeWatch } from './shared';
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 let tabId: number | undefined;
 function notice(text: string) { $('notice').textContent = text; }
 async function withNotice(job: () => Promise<unknown>) { try { await job(); } catch (error) { notice(messageError(error)); } }
 async function content(type: string): Promise<Status> {
-  if (tabId === undefined) throw new Error('请先打开 YouTube 视频页面');
+  if (tabId === undefined) throw new Error('请从 YouTube 播放器打开设置，或在视频页面点击扩展图标');
+  const target = await chrome.tabs.get(tabId);
+  if (!isYouTubeWatch(target.url)) throw new Error('目标视频页面已关闭或离开 YouTube');
   const response: Reply<Status> = await chrome.tabs.sendMessage(tabId, { target: 'content', type });
   if (!response?.ok) throw new Error(response?.error ?? '请刷新 YouTube 页面后重试');
   return response.data;
@@ -60,7 +63,7 @@ $('clearCache').addEventListener('click', () => void withNotice(async () => { aw
 $('clearLogs').addEventListener('click', () => void withNotice(async () => { await request('CLEAR_LOGS'); notice('日志已清除'); }));
 $('exportLogs').addEventListener('click', () => void withNotice(async () => {
   const logs = await request('LOGS');
-  const url = URL.createObjectURL(new Blob([JSON.stringify({ version: '0.1.0', logs }, null, 2)], { type: 'application/json' }));
+  const url = URL.createObjectURL(new Blob([JSON.stringify({ version: chrome.runtime.getManifest().version, logs }, null, 2)], { type: 'application/json' }));
   const link = document.createElement('a'); link.href = url; link.download = 'local-captions-logs.json'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 }));
 $('testOcr').addEventListener('click', () => void withNotice(async () => {
@@ -72,7 +75,7 @@ $('testOcr').addEventListener('click', () => void withNotice(async () => {
     const canvas = document.createElement('canvas'); canvas.width = Math.round(bitmap.width * scale); canvas.height = Math.round(bitmap.height * scale);
     canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height); bitmap.close();
     const s = await getSettings();
-    const result = await request<OcrResult>('OCR', { image: canvas.toDataURL('image/jpeg', 0.9), profile: s.model === 'auto' ? 'general' : s.model, backend: s.backend });
+    const result = await request<OcrResult>('OCR', { image: await encodeJpeg(canvas, 0.9), profile: s.model === 'auto' ? 'general' : s.model, backend: s.backend });
     $('ocrResult').textContent = `${Math.round(result.duration)} ms · ${result.backend}\n\n${result.lines.map(l => l.text).join('\n') || '没有识别到文字'}`;
     notice('识别完成，图片未保存');
   } catch (error) { $('ocrResult').textContent = messageError(error); throw error; }
@@ -80,10 +83,16 @@ $('testOcr').addEventListener('click', () => void withNotice(async () => {
 }));
 void withNotice(async () => {
   showSettings(await getSettings());
+  const targetParam = new URL(location.href).searchParams.get('tabId');
+  const supplied = targetParam !== null && /^\d+$/.test(targetParam) ? Number(targetParam) : undefined;
   const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
-  tabId = active?.id;
-  if (active?.url?.startsWith('https://www.youtube.com/watch')) {
+  let target: chrome.tabs.Tab | undefined;
+  try { target = supplied !== undefined ? await chrome.tabs.get(supplied) : active; } catch { /* Closed tab. */ }
+  tabId = isYouTubeWatch(target?.url) ? target?.id : undefined;
+  $<HTMLButtonElement>('recheck').disabled = tabId === undefined;
+  $<HTMLButtonElement>('restore').disabled = tabId === undefined;
+  if (tabId !== undefined) {
     try { const s = await content('STATUS'); $('status').textContent = `${s.state} · ${s.samples} 次取样`; }
-    catch { $('status').textContent = '请刷新已打开的 YouTube 页面'; }
+    catch { $('status').textContent = '请刷新目标 YouTube 页面'; }
   } else $('status').textContent = '打开 YouTube 视频开始使用';
 });

@@ -1,9 +1,22 @@
 import { DEFAULTS, getSettings, messageError } from './shared';
-import { isProfile } from './models';
 let opening: Promise<void> | undefined;
-let mutations: Promise<unknown> = Promise.resolve();
+let mutations: Promise<void> = Promise.resolve();
+async function mutate<T>(operation: () => Promise<T>): Promise<T> {
+  const previous = mutations;
+  let unlock!: () => void;
+  mutations = new Promise<void>(resolve => { unlock = resolve; });
+  await previous;
+  try { return await operation(); } finally { unlock(); }
+}
+async function ensureIdleAlarm() {
+  if (!await chrome.alarms.get('release-local-ocr')) await chrome.alarms.create('release-local-ocr', { delayInMinutes: 5 });
+}
 async function offscreen() {
-  if (!opening) opening = (async () => {
+  if (!opening) opening = openDocument();
+  return opening;
+}
+async function openDocument() {
+  try {
     const contexts = await chrome.runtime.getContexts({ contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT] });
     if (!contexts.length) await chrome.offscreen.createDocument({ url: 'offscreen.html', reasons: [chrome.offscreen.Reason.WORKERS], justification: 'Run local OCR on video frames without uploading them.' });
     for (let attempt = 0; attempt < 100; attempt++) {
@@ -11,25 +24,26 @@ async function offscreen() {
       await new Promise(resolve => setTimeout(resolve, 100));
     }
     throw new Error('本地 OCR 页面未就绪，请重新加载扩展');
-  })().finally(() => { opening = undefined; });
-  return opening;
+  } finally { opening = undefined; }
 }
 async function dispatch(m: Record<string, any>, sender: chrome.runtime.MessageSender) {
   switch (m.type) {
-    case 'OCR': case 'MODELS': case 'DOWNLOAD': case 'CLEAR_MODELS':
-      if (m.type === 'OCR' && (!isProfile(m.profile) || typeof m.image !== 'string' || m.image.length > 2000000)) throw new Error('无效识别请求');
+    case 'JOB_SUBMIT': case 'JOB_POLL': case 'JOB_CANCEL': case 'MODELS': {
+      if (m.type === 'JOB_SUBMIT' && !['OCR', 'DOWNLOAD', 'CLEAR_MODELS'].includes(m.operation)) throw new Error('无效任务');
+      const owner = sender.documentId ?? `${sender.tab?.id ?? 'extension'}:${sender.frameId ?? 0}:${sender.url ?? ''}`;
       await offscreen();
-      let timer: ReturnType<typeof setTimeout> | undefined, timedOut = false;
-      const response = await Promise.race([
-        chrome.runtime.sendMessage({ ...m, target: 'offscreen' }),
-        new Promise<never>((_resolve, reject) => { timer = setTimeout(() => { timedOut = true; reject(new Error('本地处理超时，请稍后重试或选择 WASM 兼容模式')); }, m.type === 'OCR' ? 90000 : 200000); }),
-      ]).catch(async error => {
-        if (timedOut && m.type === 'OCR') { try { await chrome.offscreen.closeDocument(); } catch { /* already closed */ } }
-        throw error;
-      }).finally(() => clearTimeout(timer));
-      if (!response?.ok) throw new Error(response?.error || 'OCR 页面没有响应');
+      if (m.type === 'JOB_SUBMIT') await ensureIdleAlarm();
+      const response = await chrome.runtime.sendMessage({ ...m, target: 'offscreen', owner });
+      if (!response?.ok) throw new Error(response?.error || '本地任务页面没有响应');
       return response.data;
-    case 'OPEN_SETTINGS': await chrome.runtime.openOptionsPage(); return true;
+    }
+    case 'OPEN_SETTINGS': {
+      const target = sender.tab;
+      if (target?.id !== undefined && target.url?.startsWith('https://www.youtube.com/watch')) {
+        await chrome.tabs.create({ url: chrome.runtime.getURL(`popup.html?tabId=${target.id}`) });
+      } else await chrome.runtime.openOptionsPage();
+      return true;
+    }
     case 'SETTINGS': return getSettings();
     case 'SAVE_SETTINGS': {
       const current = await getSettings();
@@ -73,11 +87,26 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (message?.target !== 'background' || sender.id !== chrome.runtime.id) return;
   // Serialize storage writes only; model requests must not block settings or undo.
   const write = ['SAVE_SETTINGS', 'RULE', 'CACHE_PUT', 'CLEAR_CACHE', 'LOG', 'CLEAR_LOGS'].includes(message.type);
-  const job = write ? mutations.then(() => dispatch(message, sender)) : dispatch(message, sender);
-  if (write) mutations = job.catch(() => undefined);
-  job.then(data => respond({ ok: true, data }), error => respond({ ok: false, error: messageError(error) }));
+  void (async () => {
+    try { const data = write ? await mutate(() => dispatch(message, sender)) : await dispatch(message, sender); respond({ ok: true, data }); }
+    catch (error) { respond({ ok: false, error: messageError(error) }); }
+  })();
   return true;
 });
 chrome.runtime.onInstalled.addListener(async () => {
   if (!(await chrome.storage.local.get('settings')).settings) await chrome.storage.local.set({ settings: DEFAULTS });
 });
+
+chrome.alarms.onAlarm.addListener(alarm => {
+  if (alarm.name !== 'release-local-ocr') return;
+  void (async () => {
+    try {
+      const contexts = await chrome.runtime.getContexts({ contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT] });
+      if (contexts.length) {
+        const response = await chrome.runtime.sendMessage({ target: 'offscreen', type: 'RELEASE_IDLE' });
+        if (!response?.data?.released) await chrome.alarms.create('release-local-ocr', { delayInMinutes: 1 });
+      }
+    } catch { /* A page may have closed while the alarm was being delivered. */ }
+  })();
+});
+chrome.runtime.onStartup.addListener(() => { void (async () => { try { await ensureIdleAlarm(); } catch { /* Browser shutting down. */ } })(); });

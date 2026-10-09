@@ -7,8 +7,13 @@ const opencvCsp = {name:'opencv-csp',setup(build){build.onLoad({filter:/opencv\.
 const common={plugins:[opencvCsp],bundle:true,target:'chrome116',platform:'browser',minify:true,legalComments:'linked',sourcemap:false,logLevel:'info',define:{'process.env.NODE_ENV':'"production"'},external:['node:*','fs','path','crypto']};
 for(const name of ['background','content','bridge','popup'])await build({...common,entryPoints:[`src/${name}.ts`],outfile:`dist/${name}.js`,format:name==='background'?'esm':'iife'});
 await build({...common,entryPoints:['src/offscreen.ts'],outfile:'dist/offscreen.js',format:'esm'});
+await build({...common,entryPoints:['src/ocr-worker.ts'],outfile:'dist/ocr-worker.js',format:'esm'});
 await mkdir('dist/ort',{recursive:true});
-for(const file of await readdir('node_modules/onnxruntime-web/dist'))if(file.startsWith('ort-wasm')&&(file.endsWith('.wasm')||file.endsWith('.mjs')))await cp(`node_modules/onnxruntime-web/dist/${file}`,`dist/ort/${file}`);
+// The pinned SDK imports ort.all, whose runtime loader selects the JSEP pair for WASM and WebGPU.
+const ortFiles=['ort-wasm-simd-threaded.jsep.mjs','ort-wasm-simd-threaded.jsep.wasm'];
+const ortSource=await readFile('node_modules/onnxruntime-web/dist/ort.all.min.mjs','utf8');
+if(!ortSource.includes(ortFiles[0])||ortSource.includes('ort-wasm-simd-threaded.jspi')||ortSource.includes('ort-wasm-simd-threaded.asyncify'))throw new Error('ORT runtime changed; review the asset whitelist');
+for(const file of ortFiles)await cp(`node_modules/onnxruntime-web/dist/${file}`,`dist/ort/${file}`);
 await cp('LICENSE','dist/LICENSE');
 await cp('THIRD_PARTY_NOTICES.md','dist/THIRD_PARTY_NOTICES.md');
 await cp('docs/licenses','dist/licenses',{recursive:true});

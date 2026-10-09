@@ -1,9 +1,10 @@
-// A minimal page-world bridge. No fetch/XHR interception or subtitle downloads.
+// Minimal page-world metadata bridge. No fetch/XHR interception or recurring polling.
 const SCOPE = 'local-captions:metadata:v1';
-window.addEventListener('message', event => {
-  if (event.source !== window || event.origin !== location.origin || event.data?.scope !== SCOPE || event.data?.type !== 'request') return;
+type Player = HTMLElement & { getPlayerResponse?: () => any; getOption?: (a: string, b: string) => any };
+let watched: Player | null = null;
+function publish() {
   const id = new URL(location.href).searchParams.get('v') ?? '';
-  const player = document.getElementById('movie_player') as (HTMLElement & { getPlayerResponse?: () => any; getOption?: (a: string, b: string) => any }) | null;
+  const player = document.getElementById('movie_player') as Player | null;
   try {
     const response = player?.getPlayerResponse?.() ?? (window as any).ytInitialPlayerResponse;
     if (response?.videoDetails?.videoId !== id) return;
@@ -17,5 +18,22 @@ window.addEventListener('message', event => {
       available: tracks.length > 0, language: translation || current?.languageCode || '', audio,
       track: current ? `${current.vssId ?? current.languageCode}:${translation}` : '',
     }, location.origin);
-  } catch { /* Metadata is optional; visible subtitles remain usable. */ }
+  } catch { /* Visible captions remain usable if metadata is not ready. */ }
+}
+function bindPlayer() {
+  const player = document.getElementById('movie_player') as Player | null;
+  if (player && player !== watched && typeof player.getPlayerResponse === 'function') {
+    watched?.removeEventListener('onCaptionsTrackListChanged', publish);
+    watched = player; player.addEventListener('onCaptionsTrackListChanged', publish); bootstrap.disconnect();
+  }
+  publish();
+}
+const bootstrap = new MutationObserver(bindPlayer);
+window.addEventListener('message', event => {
+  if (event.source !== window || event.origin !== location.origin || event.data?.scope !== SCOPE || event.data?.type !== 'request') return;
+  bindPlayer();
 });
+document.addEventListener('loadedmetadata', bindPlayer, true);
+document.addEventListener('DOMContentLoaded', bindPlayer, { once: true });
+document.addEventListener('yt-navigate-finish', () => { bootstrap.observe(document.documentElement, { childList: true, subtree: true }); bindPlayer(); });
+if (document.documentElement) bootstrap.observe(document.documentElement, { childList: true, subtree: true });

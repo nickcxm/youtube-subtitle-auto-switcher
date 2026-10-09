@@ -33,3 +33,11 @@ Additional functional testing was stopped at the user's request. The final build
 - `banner.svg`, `flow-en.svg`, `flow-zh.svg`: original vector artwork created for this project.
 
 No browser profiles, exported operational logs or test-video frames are committed. Temporary browser automation files are kept outside tracked source and are removed after the work is complete.
+
+## 0.2.0 focused verification / 定向验证
+
+The optimization update passed type checking, bundling and 15 quick checks. New checks cover queue-wait timeout isolation, cancellation allowing subsequent work to proceed, owner validation, and exact YouTube URL validation. The pinned ONNX Runtime loader is inspected during build to ensure the whitelisted JSEP asset pair still matches its references.
+
+The packaged runtime now contains only the JSEP module/WASM pair; asyncify, JSPI and the separate standard WASM variant are excluded. The small Offscreen coordinator remains loaded, while the OCR Worker is terminated after five idle minutes.
+
+No browser regression campaign was run for 0.2.0, in accordance with the user's testing preference. The new dedicated-Worker inference path, event-driven sampling, source-tab settings binding and focus behavior still require interactive verification. Earlier browser results above apply to 0.1.0 and are not claimed as validation of the changed runtime path.

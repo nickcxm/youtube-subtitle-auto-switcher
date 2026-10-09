@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "本地字幕管家 · Local Captions",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "在本机识别 YouTube 硬字幕，管理重复软字幕。无需账号，无次数限制。",
   "minimum_chrome_version": "116",
   "permissions": [
     "storage",
     "offscreen",
-    "activeTab"
+    "activeTab",
+    "alarms"
   ],
   "host_permissions": [
     "https://www.youtube.com/*",

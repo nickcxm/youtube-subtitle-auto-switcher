@@ -18,7 +18,7 @@
 <details><summary>语言模型管理</summary><p class="muted">常用模型内置；其他模型从 PaddleOCR 官方源下载后留在本机。</p><button id="loadModels">查看模型</button><div id="models"></div><button id="clearModels" class="text-button">清除下载模型</button></details>
 </section>
 <section class="card"><h3>诊断与本地数据</h3><p class="muted">日志只记录状态和耗时，不记录画面、字幕文字或凭据。</p><div class="row"><button id="exportLogs">导出日志</button><button id="clearLogs">清除日志</button><button id="clearCache">清除确认记录</button></div>
-<details><summary>测试本地 OCR</summary><p class="muted">选择含文字的图片验证模型。图片不上传，也不保存。</p><label class="field">本地图片<input id="testImage" type="file" accept="image/png,image/jpeg,image/webp"></label><button id="testOcr">识别图片</button><pre id="ocrResult" aria-live="polite"></pre></details>
+<details><summary>测试本地 OCR</summary><p class="muted">选择含文字的图片验证模型。图片不上传，也不保存。</p><label class="field">本地图片<input id="testImage" type="file" accept="image/png,image/jpeg,image/webp"></label><button id="testOcr">识别图片</button><pre id="ocrResult" tabindex="0" aria-live="polite"></pre></details>
 </section>
 <p id="notice" role="status" aria-live="polite"></p>
 <footer>本地处理 · 无登录 · 无额度限制<br><a href="https://github.com/nickcxm/youtube-subtitle-auto-switcher" target="_blank" rel="noreferrer">源代码与使用说明 ↗</a></footer>
